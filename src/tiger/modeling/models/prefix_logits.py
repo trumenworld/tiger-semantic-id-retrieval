@@ -189,4 +189,3 @@ class PrefixTableLogitsProcessor(LogitsProcessor):
         scores[:, end:] = -torch.inf
         scores[:, start:end].masked_fill_(~allowed, -torch.inf)
         return scores
-

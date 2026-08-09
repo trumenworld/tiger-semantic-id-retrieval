@@ -20,7 +20,7 @@ class CorrectItemsLogitsProcessor(LogitsProcessor):
         for i in range(len(mapping)):
             assert len(mapping[str(i)]) == num_codebooks, 'All semantic ids must have the same length'
             semantic_ids.append(mapping[str(i)])
-        
+
         self.index_semantic_ids = torch.tensor(semantic_ids, dtype=torch.long, device=DEVICE)  # (num_items, semantic_ids)
         self.index_semantic_ids += torch.arange(num_codebooks, device=DEVICE)[None] * codebook_size  # (num_items, semantic_ids)
 
@@ -36,7 +36,7 @@ class CorrectItemsLogitsProcessor(LogitsProcessor):
             index=index,
             src=torch.zeros_like(index)  # Unexisting SIDs
         )  # (batch_size, num_items, semantic_ids)
-    
+
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         next_sid_codebook_num = (torch.minimum((input_ids[:, -1].max() // self.codebook_size), torch.as_tensor(self.num_codebooks - 1)).item() + 1) % self.num_codebooks
         a = torch.tile(self.index_semantic_ids[:, None, :, next_sid_codebook_num], dims=[1, self.num_beams, 1])  # (batch_size, num_beams, num_items)
@@ -59,11 +59,11 @@ class CorrectItemsLogitsProcessor(LogitsProcessor):
             index=a,
             src=torch.ones_like(a).bool()
         )
-        
+
         scores[:, :next_sid_codebook_num * self.codebook_size] = -torch.inf
         scores[:, (next_sid_codebook_num + 1) * self.codebook_size:] = -torch.inf
         scores[~(scores_mask.bool())] = -torch.inf
-        
+
         return scores
 
 
