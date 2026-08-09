@@ -1,0 +1,145 @@
+"""TIGER training entry point using the exact-equivalent prefix-table constraint.
+
+This file intentionally lives beside train_tiger.py instead of changing it. All
+training, validation, checkpoint, and metric settings still come from the same
+configuration file; only the constrained-decoding logits processor is replaced.
+"""
+
+import json
+from functools import partial
+
+import torch
+from torch.utils.data import DataLoader
+
+from modeling import utils
+from modeling.dataloader import BatchProcessor
+from modeling.dataset import Dataset
+from modeling.loss import IdentityLoss
+from modeling.metric import NDCGSemanticMetric, RecallSemanticMetric
+from modeling.models import TigerModel
+from modeling.models.prefix_logits import PrefixTableLogitsProcessor
+from modeling.trainer import Trainer
+from modeling.utils import parse_args, create_logger, fix_random_seed
+
+
+LOGGER = create_logger(name=__name__)
+SEED_VALUE = 42
+
+
+def main():
+    fix_random_seed(SEED_VALUE)
+    config = parse_args()
+    LOGGER.debug('Training config: \n{}'.format(json.dumps(config, indent=2)))
+    LOGGER.debug('Current DEVICE: {}'.format(utils.DEVICE))
+    LOGGER.debug('Constrained decoding: GPU prefix table')
+
+    dataset = Dataset.create(
+        inter_json_path=config['dataset']['inter_json_path'],
+        max_sequence_length=config['dataset']['max_sequence_length'],
+        sampler_type=config['dataset']['sampler_type'],
+        is_extended=True,
+    )
+    train_sampler, validation_sampler, test_sampler = dataset.get_samplers()
+
+    num_codebooks = config['dataset']['num_codebooks']
+    user_ids_count = config['model']['user_ids_count']
+    batch_processor = BatchProcessor.create(
+        config['dataset']['index_json_path'], num_codebooks, user_ids_count
+    )
+    train_dataloader = DataLoader(
+        dataset=train_sampler,
+        batch_size=config['dataloader']['train_batch_size'],
+        drop_last=True,
+        shuffle=True,
+        collate_fn=batch_processor,
+    )
+    validation_dataloader = DataLoader(
+        dataset=validation_sampler,
+        batch_size=config['dataloader']['validation_batch_size'],
+        drop_last=False,
+        shuffle=False,
+        collate_fn=batch_processor,
+    )
+    eval_dataloader = DataLoader(
+        dataset=test_sampler,
+        batch_size=config['dataloader']['validation_batch_size'],
+        drop_last=False,
+        shuffle=False,
+        collate_fn=batch_processor,
+    )
+
+    model = TigerModel(
+        embedding_dim=config['model']['embedding_dim'],
+        codebook_size=config['model']['codebook_size'],
+        sem_id_len=num_codebooks,
+        user_ids_count=user_ids_count,
+        num_positions=config['model']['num_positions'],
+        num_heads=config['model']['num_heads'],
+        num_encoder_layers=config['model']['num_encoder_layers'],
+        num_decoder_layers=config['model']['num_decoder_layers'],
+        dim_feedforward=config['model']['dim_feedforward'],
+        num_beams=config['model']['num_beams'],
+        num_return_sequences=config['model']['top_k'],
+        activation=config['model']['activation'],
+        d_kv=config['model']['d_kv'],
+        dropout=config['model']['dropout'],
+        layer_norm_eps=config['model']['layer_norm_eps'],
+        initializer_range=config['model']['initializer_range'],
+        logits_processor=partial(
+            PrefixTableLogitsProcessor,
+            num_codebooks,
+            config['model']['codebook_size'],
+            config['dataset']['index_json_path'],
+            config['model']['num_beams'],
+        ),
+    ).to(utils.DEVICE)
+
+    LOGGER.debug(f'Overall parameters: {sum(p.numel() for p in model.parameters()):,}')
+    LOGGER.debug(
+        f'Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}'
+    )
+    loss_function = IdentityLoss(predictions_prefix='loss', output_prefix='loss')
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config['optimizer']['lr'])
+    codebook_size = config['model']['codebook_size']
+    ranking_metrics = {
+        'ndcg@5': NDCGSemanticMetric(5, codebook_size, num_codebooks),
+        'ndcg@10': NDCGSemanticMetric(10, codebook_size, num_codebooks),
+        'ndcg@20': NDCGSemanticMetric(20, codebook_size, num_codebooks),
+        'recall@5': RecallSemanticMetric(5, codebook_size, num_codebooks),
+        'recall@10': RecallSemanticMetric(10, codebook_size, num_codebooks),
+        'recall@20': RecallSemanticMetric(20, codebook_size, num_codebooks),
+    }
+
+    training_control = config['training_control']
+    trainer = Trainer(
+        experiment_name=config['experiment_name'],
+        train_dataloader=train_dataloader,
+        validation_dataloader=validation_dataloader,
+        eval_dataloader=eval_dataloader,
+        model=model,
+        optimizer=optimizer,
+        loss_function=loss_function,
+        ranking_metrics=ranking_metrics,
+        epoch_cnt=config.get('train_epochs_num'),
+        step_cnt=config.get('train_steps_num'),
+        best_metric=training_control['best_metric'],
+        epochs_threshold=training_control['early_stopping_threshold_epochs'],
+        valid_step=len(train_dataloader) * training_control['validation_every_epochs'],
+        eval_step=256,
+        run_eval_during_training=training_control['run_test_during_training'],
+        checkpoint_every_epochs=training_control['checkpoint_every_epochs'],
+        resume_checkpoint_path=training_control['resume_checkpoint_path'],
+        resume_from_latest=training_control['resume_from_latest'],
+    )
+
+    LOGGER.debug('Everything is ready for training process!')
+    best_checkpoint = trainer.train()
+    trainer.load(best_checkpoint)
+    trainer.save()
+    LOGGER.debug('Training finished!')
+    LOGGER.debug('Final evaluation is being performed...')
+    trainer.eval()
+
+
+if __name__ == '__main__':
+    main()

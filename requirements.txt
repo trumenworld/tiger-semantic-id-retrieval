@@ -1,0 +1,8 @@
+numpy>=1.26
+scikit-learn>=1.4
+torch>=2.4
+transformers>=4.45
+accelerate>=0.34
+tensorboard>=2.16
+murmurhash>=1.0
+faiss-cpu>=1.8

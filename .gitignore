@@ -1,0 +1,35 @@
+# Data and model artifacts
+data/raw/
+data/processed/
+data/**/*.json
+data/**/*.jsonl
+data/**/*.pkl
+data/**/*.npy
+data/**/*.npz
+checkpoints/
+outputs/
+logs/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.zip
+
+# Local and notebook state
+.venv/
+.deps/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+
+# Secrets and experiment services
+.env
+.env.*
+wandb/
+tensorboard_logs/
+
+# Keep the dataset instructions visible in the otherwise empty directory.
+!data/README.md

@@ -1,0 +1,23 @@
+{
+  "dataset": "Amazon Beauty 5-core",
+  "items": 12101,
+  "users": 22363,
+  "paper_reference": {
+    "ndcg_at_10": 0.0384,
+    "recall_at_10": 0.0648
+  },
+  "public_tiger_reproduction": {
+    "sid": "four-token RQ-VAE table",
+    "ndcg_at_10": 0.03034,
+    "recall_at_10": 0.05455,
+    "evaluation_level": "exact item SID"
+  },
+  "rqopq_exact_sid_run": {
+    "sid": [256, 256, 256, 128, 128],
+    "ndcg_at_10": 0.0408,
+    "recall_at_10": 0.0749,
+    "collision_item_rate": 0.1583,
+    "evaluation_level": "exact Semantic-ID bucket",
+    "caveat": "Not a strict collision-free item-level comparison"
+  }
+}
